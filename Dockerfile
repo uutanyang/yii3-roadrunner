@@ -1,4 +1,4 @@
-FROM yiisoftware/yii-php:8.3-fpm-nginx
+FROM yiisoftware/yii-php:8.3-fpm
 
 # 安装必要的扩展
 RUN set -e \
