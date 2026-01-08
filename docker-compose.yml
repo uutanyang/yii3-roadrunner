@@ -1,0 +1,197 @@
+version: '3.8'
+
+services:
+  # ============================================================
+  # Yii3 + RoadRunner 应用容器
+  # ============================================================
+  yii3-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yii3-app
+    ports:
+      - "${APP_HTTP_PORT:-8080}:8080"  # HTTP 端口
+    volumes:
+      - .:/app  # 挂载应用代码目录
+      - /app/vendor  # 避免本地 vendor 目录覆盖容器内的
+    environment:
+      # 应用环境配置
+      - APP_ENV=${APP_ENV:-production}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      
+      # 数据库连接配置
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-yii3}
+      - DB_USER=${DB_USER:-yii3}
+      - DB_PASSWORD=${DB_PASSWORD}
+      
+      # Redis 缓存配置
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=${REDIS_DB:-0}
+      
+      # MinIO 对象存储配置
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET:-yii3-uploads}
+      - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      
+      # NATS 消息队列配置
+      - NATS_URL=${NATS_URL:-nats://nats:4222}
+      - NATS_STREAM_NAME=${NATS_STREAM_NAME:-yii3-stream}
+      - NATS_CONSUMER_NAME=${NATS_CONSUMER_NAME:-yii3-consumer}
+      
+    depends_on:
+      - postgres
+      - redis
+      - minio
+      - nats
+    networks:
+      - yii3-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================================
+  # PostgreSQL 数据库
+  # ============================================================
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:15-alpine}
+    container_name: yii3-postgres
+    ports:
+      - "${DB_PORT:-5432}:5432"  # 数据库端口
+    volumes:
+      - postgres-data:/var/lib/postgresql/data  # 数据持久化
+    environment:
+      # PostgreSQL 根用户配置
+      - POSTGRES_DB=${DB_NAME:-yii3}
+      - POSTGRES_USER=${DB_USER:-yii3}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - PGDATA=/var/lib/postgresql/data/pgdata
+    networks:
+      - yii3-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-yii3} -d ${DB_NAME:-yii3}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # Redis 缓存服务
+  # ============================================================
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    container_name: yii3-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"  # Redis 端口
+    volumes:
+      - redis-data:/data  # 数据持久化，启用 AOF
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    networks:
+      - yii3-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "if [ -n \"${REDIS_PASSWORD}\" ]; then redis-cli -a \"${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ============================================================
+  # MinIO 对象存储服务
+  # ============================================================
+  minio:
+    image: ${MINIO_IMAGE:-minio/minio:latest}
+    container_name: yii3-minio
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"  # API 端口
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"  # Web UI 管理界面端口
+    volumes:
+      - minio-data:/data  # 数据持久化
+    environment:
+      # MinIO 管理员凭证
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+    command: server /data --console-address ":9001"
+    networks:
+      - yii3-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ============================================================
+  # MinIO 客户端 (用于自动创建 bucket 和设置权限)
+  # ============================================================
+  minio-client:
+    image: minio/mc:latest
+    container_name: yii3-minio-client
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set myminio http://${MINIO_ENDPOINT:-minio:9000} ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY};
+      /usr/bin/mc mb myminio/${MINIO_BUCKET:-yii3-uploads} --ignore-existing;
+      /usr/bin/mc policy set public myminio/${MINIO_BUCKET:-yii3-uploads};
+      echo 'MinIO bucket ${MINIO_BUCKET:-yii3-uploads} created successfully';
+      exit 0;
+      "
+    networks:
+      - yii3-network
+
+  # ============================================================
+  # NATS 消息队列服务
+  # ============================================================
+  nats:
+    image: ${NATS_IMAGE:-nats:2.10-alpine}
+    container_name: yii3-nats
+    ports:
+      - "${NATS_PORT:-4222}:4222"  # 客户端连接端口
+      - "${NATS_MONITORING_PORT:-8222}:8222"  # HTTP 监控端口
+      - "${NATS_WEBSOCKET_PORT:-6222}:6222"  # WebSocket 连接端口
+    volumes:
+      - nats-data:/data  # JetStream 数据持久化
+    command: -js --store_dir /data -m ${NATS_MONITORING_PORT:-8222}  # -js 启用 JetStream
+    networks:
+      - yii3-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${NATS_MONITORING_PORT:-8222}/varz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# ============================================================
+# 数据卷定义 (用于数据持久化)
+# ============================================================
+volumes:
+  postgres-data:
+    driver: local
+    name: yii3-postgres-data
+  redis-data:
+    driver: local
+    name: yii3-redis-data
+  minio-data:
+    driver: local
+    name: yii3-minio-data
+  nats-data:
+    driver: local
+    name: yii3-nats-data
+
+# ============================================================
+# 网络配置
+# ============================================================
+networks:
+  yii3-network:
+    driver: bridge
+    name: yii3-network

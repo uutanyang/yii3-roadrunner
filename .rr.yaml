@@ -1,0 +1,46 @@
+server:
+  command: "php ./vendor/bin/roadrunner-worker"
+  env:
+    - APP_ENV: production
+
+http:
+  address: "0.0.0.0:8080"
+  pool:
+    num_workers: 4
+    max_jobs: 1000
+    allocate_timeout: 60s
+    destroy_timeout: 60s
+  middleware:
+    - static
+  static:
+    dir: "public"
+    forbid: [".php", ".htaccess"]
+    request:
+      headers:
+        "Cache-Control": "public, max-age=31536000"
+
+logs:
+  mode: production
+  level: info
+  channels:
+    http:
+      level: info
+    server:
+      level: info
+
+jobs:
+  num_workers: 2
+  pipeline_size: 100000
+  pool:
+    num_workers: 4
+
+redis:
+  # 如果使用 Redis
+  - addr: redis:6379
+    # 密码，如果没有则为空
+    password: ""
+    db: 0
+
+# 如果需要临时文件清理
+temporal:
+  address: localhost:7233
