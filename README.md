@@ -35,7 +35,7 @@
 1. **克隆或下载项目**
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/uutanyang/yii3-roadrunner.git
 cd yii3-roadrunner
 ```
 

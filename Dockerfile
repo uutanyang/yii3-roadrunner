@@ -1,15 +1,24 @@
-FROM yiisoftware/yii3-php:8.2-fpm
+FROM yiisoftware/yii-php:8.3-fpm-nginx
 
 # 安装必要的扩展
-RUN docker-php-ext-install pdo pdo_pgsql pgsql bcmath opcache
+RUN set -e \
+    && docker-php-ext-install pdo pdo_pgsql pgsql bcmath opcache \
+    && rm -rf /var/lib/apt/lists/*
 
 # 安装 Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# 安装 RoadRunner
-RUN curl -LO https://github.com/roadrunner-server/roadrunner/releases/latest/download/roadrunner-linux-amd64 \
-    && chmod +x roadrunner-linux-amd64 \
-    && mv roadrunner-linux-amd64 /usr/local/bin/rr
+# 安装 RoadRunner (使用固定版本和 HTTPS)
+RUN set -e \
+    && ROADRUNNER_VERSION="2023.3.6" \
+    && curl -fsSL "https://github.com/roadrunner-server/roadrunner/releases/download/v${ROADRUNNER_VERSION}/roadrunner-linux-amd64" -o /tmp/rr \
+    && curl -fsSL "https://github.com/roadrunner-server/roadrunner/releases/download/v${ROADRUNNER_VERSION}/roadrunner-linux-amd64.sha256" -o /tmp/rr.sha256 \
+    && cd /tmp \
+    && echo "$(cat rr.sha256)  rr" | sha256sum -c - \
+    && chmod +x /tmp/rr \
+    && mv /tmp/rr /usr/local/bin/rr \
+    && /usr/local/bin/rr --version \
+    && rm -f /tmp/rr /tmp/rr.sha256
 
 # 设置工作目录
 WORKDIR /app
