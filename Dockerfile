@@ -1,42 +1,33 @@
-FROM yiisoftware/yii-php:8.3-fpm
+# 使用 PHP 8.3 CLI (因为 RoadRunner 运行在 CLI 模式下)
+FROM php:8.3-cli-alpine
 
-# 安装必要的扩展
-RUN set -e \
-    && docker-php-ext-install pdo pdo_pgsql pgsql bcmath opcache \
-    && rm -rf /var/lib/apt/lists/*
+# 安装系统依赖
+RUN apk add --no-cache \
+    postgresql-libs \
+    libzip-dev \
+    curl \
+    unzip \
+    git
+
+# 安装 PHP 扩展
+RUN docker-php-ext-install \
+    pdo \
+    pdo_pgsql \
+    mbstring \
+    intl \
+    zip \
+    opcache
 
 # 安装 Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# 安装 RoadRunner (使用固定版本和 HTTPS)
-RUN set -e \
-    && ROADRUNNER_VERSION="2023.3.6" \
-    && curl -fsSL "https://github.com/roadrunner-server/roadrunner/releases/download/v${ROADRUNNER_VERSION}/roadrunner-linux-amd64" -o /tmp/rr \
-    && curl -fsSL "https://github.com/roadrunner-server/roadrunner/releases/download/v${ROADRUNNER_VERSION}/roadrunner-linux-amd64.sha256" -o /tmp/rr.sha256 \
-    && cd /tmp \
-    && echo "$(cat rr.sha256)  rr" | sha256sum -c - \
-    && chmod +x /tmp/rr \
-    && mv /tmp/rr /usr/local/bin/rr \
-    && /usr/local/bin/rr --version \
-    && rm -f /tmp/rr /tmp/rr.sha256
+# 安装 RoadRunner
+# 这里下载最新版，你可以锁定版本号以保证稳定性
+RUN curl -sSfL https://github.com/spiral/roadrunner/releases/download/v3.0.0/roadrunner-linux-amd64 -o /usr/local/bin/rr && \
+    chmod +x /usr/local/bin/rr
 
 # 设置工作目录
 WORKDIR /app
 
-# 复制 composer 文件
-COPY composer.json composer.lock* ./
-
-# 安装依赖
-RUN composer install --no-scripts --no-autoloader --prefer-dist
-
-# 复制应用代码
-COPY . .
-
-# 生成 autoloader
-RUN composer dump-autoload --optimize
-
-# 暴露端口
-EXPOSE 8080
-
-# 启动 RoadRunner
-CMD ["rr", "serve"]
+# 默认命令（会被 docker-compose 中的 command 覆盖，或者由 .rr.yaml 决定）
+CMD ["rr", "serve", "-d", "-c", ".rr.yaml"]
