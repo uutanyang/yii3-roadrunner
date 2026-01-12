@@ -1,10 +1,18 @@
-# 使用 PHP 8.3 CLI (因为 RoadRunner 运行在 CLI 模式下)
+# ============================================================
+# 多阶段构建：使用 RoadRunner 官方镜像
+# ============================================================
+FROM ghcr.io/roadrunner-server/roadrunner:2025.1.6 AS roadrunner
+
+# ============================================================
+# 主构建阶段：PHP + RoadRunner
+# ============================================================
 FROM php:8.3-cli-alpine
 
 # 安装系统依赖
 RUN apk add --no-cache \
     postgresql-libs \
     libzip-dev \
+    libzip \
     curl \
     unzip \
     git
@@ -21,17 +29,8 @@ RUN docker-php-ext-install \
 # 安装 Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# 安装 RoadRunner
-# 下载并解压指定版本
-RUN set -e \
-    && ROADRUNNER_VERSION="2025.1.6" \
-    && apk add --no-cache tar \
-    && curl -fsSL "https://github.com/roadrunner-server/roadrunner/releases/download/v${ROADRUNNER_VERSION}/roadrunner-v${ROADRUNNER_VERSION}-linux-amd64.tar.gz" -o /tmp/rr.tar.gz \
-    && tar -xzf /tmp/rr.tar.gz -C /tmp \
-    && chmod +x /tmp/rr \
-    && mv /tmp/rr /usr/local/bin/rr \
-    && /usr/local/bin/rr --version \
-    && rm -f /tmp/rr.tar.gz
+# 从 RoadRunner 官方镜像复制二进制文件
+COPY --from=roadrunner /usr/bin/rr /usr/local/bin/rr
 
 # 设置工作目录
 WORKDIR /app
