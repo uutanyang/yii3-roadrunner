@@ -22,9 +22,16 @@ RUN docker-php-ext-install \
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # 安装 RoadRunner
-# 这里下载最新版，你可以锁定版本号以保证稳定性
-RUN curl -sSfL https://github.com/spiral/roadrunner/releases/download/v3.0.0/roadrunner-linux-amd64 -o /usr/local/bin/rr && \
-    chmod +x /usr/local/bin/rr
+# 下载并解压指定版本
+RUN set -e \
+    && ROADRUNNER_VERSION="2025.1.6" \
+    && apk add --no-cache tar \
+    && curl -fsSL "https://github.com/roadrunner-server/roadrunner/releases/download/v${ROADRUNNER_VERSION}/roadrunner-v${ROADRUNNER_VERSION}-linux-amd64.tar.gz" -o /tmp/rr.tar.gz \
+    && tar -xzf /tmp/rr.tar.gz -C /tmp \
+    && chmod +x /tmp/rr \
+    && mv /tmp/rr /usr/local/bin/rr \
+    && /usr/local/bin/rr --version \
+    && rm -f /tmp/rr.tar.gz
 
 # 设置工作目录
 WORKDIR /app
