@@ -1,0 +1,156 @@
+services:
+  # ============================================================
+  # PHP / RoadRunner 应用服务
+  # ============================================================
+  app:
+    build:
+      context: ..
+      dockerfile: docker/app/Dockerfile
+    container_name: ${APP_CONTAINER_NAME:-yii3_app}
+    volumes:
+      - ${PWD}/.rr.yaml:/app/.rr.yaml:ro
+      - ${PWD}/rr-worker.php:/app/rr-worker.php:ro
+    environment:
+      # Yii3 应用环境配置
+      APP_ENV: ${APP_ENV:-dev}
+      APP_DEBUG: ${APP_DEBUG:-false}
+
+      # PostgreSQL 数据库配置
+      DB_DSN: pgsql:host=${DB_HOST:-postgres};port=5432;dbname=${DB_NAME:-yii_db}
+      DB_USERNAME: ${DB_USER:-yii_user}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+      # MinIO 对象存储配置
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET:-yii-bucket}
+
+      # NATS 消息队列配置
+      NATS_DSN: ${NATS_URL:-nats://nats:4222}
+      NATS_JETSTREAM_ENABLED: ${NATS_JETSTREAM_ENABLED:-1}
+
+    ports:
+      - "${APP_HTTP_PORT:-8080}:8080"
+
+    depends_on:
+      - db
+      - minio
+      - nats
+      - redis
+
+    networks:
+      - caoguo-yii3-net
+
+    restart: ${RESTART_POLICY:-unless-stopped}
+
+
+  # ============================================================
+  # PostgreSQL 数据库服务
+  # ============================================================
+  db:
+    build:
+      context: ..
+      dockerfile: docker/postgres/Dockerfile
+    platform: linux/amd64
+    container_name: ${POSTGRES_CONTAINER_NAME:-yii3_postgres}
+    environment:
+      POSTGRES_DB: ${DB_NAME:-yii_db}
+      POSTGRES_USER: ${DB_USER:-yii_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_MAX_CONNECTIONS: ${POSTGRES_MAX_CONNECTIONS:-200}
+      POSTGRES_SHARED_BUFFERS: ${POSTGRES_SHARED_BUFFERS:-256MB}
+      POSTGRES_EFFECTIVE_CACHE_SIZE: ${POSTGRES_EFFECTIVE_CACHE_SIZE:-1GB}
+      POSTGRES_LOG_MIN_DURATION_STATEMENT: ${POSTGRES_LOG_MIN_DURATION_STATEMENT:--1}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - ${POSTGRES_DATA_VOLUME:-pg_data}:/var/lib/postgresql/data
+    networks:
+      - caoguo-yii3-net
+
+  # ============================================================
+  # Redis 服务
+  # ============================================================
+  redis:
+    build:
+      context: ..
+      dockerfile: docker/redis/Dockerfile
+    platform: linux/amd64
+    restart: always
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${EXTERNAL_REDIS_PORT:-6379}:6379"
+    networks:
+      - caoguo-yii3-net
+
+  # ============================================================
+  # MinIO 对象存储服务
+  # ============================================================
+  minio:
+    build:
+      context: ..
+      dockerfile: docker/minio/Dockerfile
+    platform: linux/amd64
+    container_name: ${MINIO_CONTAINER_NAME:-yii3_minio}
+    command: server /data --console-address ":9001" --address ":9000"
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_SERVER_URL: ${MINIO_SERVER_URL:-http://localhost:9000}
+      TZ: Asia/Shanghai
+    restart: always
+    volumes:
+      - ${MINIO_DATA_VOLUME:-minio_data}:/data
+    networks:
+      - caoguo-yii3-net
+
+  # ============================================================
+  # NATS 消息队列服务（JetStream）
+  # ============================================================
+  nats:
+    build:
+      context: ..
+      dockerfile: docker/nats/Dockerfile
+    platform: linux/amd64
+    container_name: ${NATS_CONTAINER_NAME:-yii3_nats}
+    command: "-js -c /etc/nats/nats-server.conf"
+    restart: always
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITORING_PORT:-8222}:8222"
+    environment:
+      NATS_MAX_PAYLOAD: ${NATS_MAX_PAYLOAD:-1048576}
+      NATS_MAX_CONNECTIONS: ${NATS_MAX_CONNECTIONS:-65536}
+      TZ: Asia/Shanghai
+    volumes:
+      - ${NATS_DATA_VOLUME:-nats_data}:/data
+    networks:
+      - caoguo-yii3-net
+
+networks:
+  caoguo-yii3-net:
+    name: ${NETWORK_NAME:-caoguo-yii3-net}
+    driver: ${NETWORK_DRIVER:-bridge}
+
+volumes:
+  pg_data:
+    name: ${POSTGRES_DATA_VOLUME:-pg_data}
+    driver: local
+  minio_data:
+    name: ${MINIO_DATA_VOLUME:-minio_data}
+    driver: local
+  nats_data:
+    name: ${NATS_DATA_VOLUME:-nats_data}
+    driver: local
+  redis_data:
+    name: ${REDIS_DATA_VOLUME:-redis_data}
+    driver: local

@@ -1,0 +1,17 @@
+version: "3"
+
+server:
+  command: "php -S 0.0.0.0:8080"
+  relay: "pipes"
+
+http:
+  address: 0.0.0.0:8080
+  pool:
+    num_workers: 1
+    max_jobs: 1000
+    allocate_timeout: 60s
+    destroy_timeout: 60s
+
+logs:
+  mode: development
+  level: debug
